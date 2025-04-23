@@ -1,6 +1,3 @@
-Sure! Here's your complete `README.md` in markdown format, complete with emojis and code blocks ready for single-click copy on GitHub:
-
-```markdown
 # 🐳 Kubernetes-Based Canary Deployment with K3s and Istio
 
 This project demonstrates how to perform **canary deployments** in a lightweight Kubernetes environment using **K3s** and **Istio**. It simulates real-world scenarios where traffic is gradually shifted between stable and new versions of an application.
@@ -182,6 +179,3 @@ istioctl uninstall --purge
 ---
 
 🧠 **Maintained by [lokesh-matha](https://github.com/lokesh-matha)** • Contributions welcome!
-```
-
-Let me know if you'd like a badge section or GitHub Actions integration added too!
