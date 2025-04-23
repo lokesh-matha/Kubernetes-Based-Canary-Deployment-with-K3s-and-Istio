@@ -92,61 +92,219 @@ kubectl port-forward svc/grafana 3000:3000 -n monitoring
 Then visit [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
-
-## 🚦 Performing a Canary Deployment
-
-### Initial Setup
-
-Ensure the stable version (`v1`) of your application is running.
-
-### Deploy Canary Version
-
-Apply the deployment manifest for the canary version (`v2`).
-
-### Configure Traffic Splitting
-
-Update your `VirtualService` to split traffic:
-
-```yaml
-apiVersion: networking.istio.io/v1alpha3
-kind: VirtualService
-metadata:
-  name: your-app
-spec:
-  hosts:
-    - your-app
-  http:
-    - route:
-        - destination:
-            host: your-app
-            subset: v1
-          weight: 90
-        - destination:
-            host: your-app
-            subset: v2
-          weight: 10
-```
-
-Apply the changes:
-
-```bash
-kubectl apply -f split/virtual-service.yaml
-```
-
-### Monitor Performance
-
-Use Grafana dashboards to track stability and performance of both versions.
-
-### Gradual Rollout
-
-If `v2` performs well, incrementally increase its traffic share by updating weights in `VirtualService`.
-
-### Full Rollout
-
-Once confident, route 100% of traffic to `v2` and decommission `v1`.
+Absolutely! Here's your full list of **Istio + K3s Canary Deployment commands** in regular, clean format (not inside a code block), ready to read, copy, and use:
 
 ---
 
+### 🛠️ Setup and Gateway Deployment
+
+1. View the Istio Gateway YAML:
+   ```
+   cat k8s/istio/gateway/app/istio.yaml
+   ```
+
+2. Create a namespace and enable Istio injection:
+   ```
+   kubectl create namespace go-demo-7
+   kubectl label namespace go-demo-7 istio-injection=enabled
+   ```
+
+3. Apply the Istio gateway configuration:
+   ```
+   kubectl --namespace go-demo-7 apply --filename k8s/istio/gateway --recursive
+   ```
+
+4. Wait for the primary deployment rollout:
+   ```
+   kubectl --namespace go-demo-7 rollout status deployment go-demo-7-primary
+   ```
+
+5. Check resources:
+   ```
+   kubectl --namespace go-demo-7 get pods
+   kubectl --namespace go-demo-7 get virtualservices
+   kubectl --namespace go-demo-7 describe virtualservice go-demo-7
+   ```
+
+6. Run a quick curl test from an Alpine pod:
+   ```
+   kubectl run curl --image alpine -it --rm -- sh -c "apk add -U curl && curl go-demo-7.go-demo-7/demo/hello"
+   ```
+
+7. View gateway and ingress:
+   ```
+   kubectl --namespace go-demo-7 get ingress
+   kubectl --namespace go-demo-7 get gateways
+   kubectl --namespace go-demo-7 describe gateway go-demo-7
+   ```
+
+---
+
+### 🌐 Ingress Configuration
+
+- **If using Minikube**:
+   ```
+   export INGRESS_PORT=$(kubectl --namespace istio-system get service istio-ingressgateway --output jsonpath='{.spec.ports[?(@.name=="http2")].nodePort}')
+   export INGRESS_HOST=$(minikube ip):$INGRESS_PORT
+   ```
+
+- **If using EKS**:
+   ```
+   export INGRESS_HOST=$(kubectl --namespace istio-system get service istio-ingressgateway --output jsonpath="{.status.loadBalancer.ingress[0].hostname}")
+   ```
+
+- Confirm the host:
+   ```
+   echo $INGRESS_HOST
+   ```
+
+- Test access:
+   ```
+   curl -v -H "Host: go-demo-7.acme.com" "http://$INGRESS_HOST/demo/hello"
+   curl -v -H "Host: something-else.acme.com" "http://$INGRESS_HOST/demo/hello"
+   ```
+
+- Delete gateway configuration:
+   ```
+   kubectl --namespace go-demo-7 delete --filename k8s/istio/gateway --recursive
+   ```
+
+---
+
+### 🚀 First Release Testing
+
+```
+for i in {1..10}; do 
+    curl -H "Host: go-demo-7.acme.com" "http://$INGRESS_HOST/version"
+done
+```
+
+---
+
+### 🆕 Canary Release
+
+1. Review and compare manifests:
+   ```
+   cat istio/split/exercise/app-0-0-2-canary.yaml
+   diff istio/gateway/app/deployment.yaml istio/split/exercise/app-0-0-2-canary.yaml
+   ```
+
+2. Deploy canary version:
+   ```
+   kubectl --namespace go-demo-7 apply --filename istio/split/exercise/app-0-0-2-canary.yaml
+   kubectl --namespace go-demo-7 rollout status deployment go-demo-7-canary
+   ```
+
+3. Load test:
+   ```
+   for i in {1..100}; do 
+       curl -H "Host: go-demo-7.acme.com" "http://$INGRESS_HOST/version"
+   done
+   ```
+
+4. Validate state:
+   ```
+   kubectl --namespace go-demo-7 get deployments
+   kubectl --namespace go-demo-7 describe service go-demo-7
+   kubectl --namespace go-demo-7 describe virtualservice go-demo-7
+   kubectl --namespace go-demo-7 describe gateway go-demo-7
+   ```
+
+---
+
+### 🔀 Splitting Traffic
+
+1. Apply host config:
+   ```
+   cat istio/split/exercise/host20.yaml
+   kubectl --namespace go-demo-7 apply --filename istio/split/exercise/host20.yaml
+   ```
+
+2. Test:
+   ```
+   for i in {1..100}; do 
+       curl -H "Host: go-demo-7.acme.com" "http://$INGRESS_HOST/version"
+   done
+   ```
+
+3. Remove host routing:
+   ```
+   kubectl --namespace go-demo-7 delete --filename istio/split/exercise/host20.yaml
+   ```
+
+4. Apply split config (must total 100%):
+   ```
+   cat istio/split/exercise/split20.yaml
+   kubectl --namespace go-demo-7 apply --filename istio/split/exercise/split20.yaml
+   ```
+
+5. Test again:
+   ```
+   for i in {1..100}; do 
+       curl -H "Host: go-demo-7.acme.com" "http://$INGRESS_HOST/version"
+   done
+   ```
+
+---
+
+### 🔁 Rolling Forward
+
+1. Apply increased traffic splits:
+   ```
+   cat istio/split/exercise/split40.yaml
+   kubectl --namespace go-demo-7 apply --filename istio/split/exercise/split40.yaml
+   ```
+
+   ```
+   cat istio/split/exercise/split60.yaml
+   kubectl --namespace go-demo-7 apply --filename istio/split/exercise/split60.yaml
+   ```
+
+2. Test traffic after each:
+   ```
+   for i in {1..100}; do 
+       curl -H "Host: go-demo-7.acme.com" "http://$INGRESS_HOST/version"
+   done
+   ```
+
+---
+
+### ✅ Finalize Deployment
+
+1. Deploy the stable version of new release:
+   ```
+   cat istio/split/exercise/app-0-0-2.yaml
+   diff istio/gateway/app/deployment.yaml istio/split/exercise/app-0-0-2.yaml
+   kubectl --namespace go-demo-7 apply --filename istio/split/exercise/app-0-0-2.yaml
+   kubectl --namespace go-demo-7 rollout status deployment go-demo-7-primary
+   ```
+
+2. Load test final state:
+   ```
+   for i in {1..100}; do 
+       curl -H "Host: go-demo-7.acme.com" "http://$INGRESS_HOST/version"
+   done
+   ```
+
+3. Route all traffic to new version:
+   ```
+   cat istio/split/exercise/split100.yaml
+   kubectl --namespace go-demo-7 apply --filename istio/split/exercise/split100.yaml
+   ```
+
+4. Confirm deployment:
+   ```
+   for i in {1..100}; do 
+       curl -H "Host: go-demo-7.acme.com" "http://$INGRESS_HOST/version"
+   done
+   ```
+
+5. View final deployments:
+   ```
+   kubectl --namespace go-demo-7 get deployments
+   ```
+
+---
 ## 📸 Screenshots
 
 Check the [`screenshots/`](./screenshots/) directory for visual references on:
